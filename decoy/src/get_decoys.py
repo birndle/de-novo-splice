@@ -62,6 +62,8 @@ def scan_for_donor_decoy(seq):
 		candidates.append((consensus, j, dist))
 	# get best MES score
 	seqs = map(lambda x:x[0], candidates)
+	if not seqs:
+		return False, False, False
 	mes = score5_perl(seqs)
 	best_mes = max(mes)
 	# if more than one decoy are tied for best MES score, pick the closer one
@@ -91,6 +93,8 @@ def scan_for_acceptor_decoy(seq):
 		candidates.append((consensus, j, dist))
 	# get best MES score
 	seqs = map(lambda x:x[0], candidates)
+	if not seqs:
+		return False, False, False
 	mes = score3_perl(seqs)
 	best_mes = max(mes)
 	# if more than one decoy are tied for best MES score, pick the closer one
@@ -133,9 +137,9 @@ if __name__ == '__main__':
 					seq = seq[:junction].lower() + seq[junction+1:]
 					seq, mes, dist = scan_for_acceptor_decoy(seq)
 					ss = 'acceptor'
-				lines.append([ss, seq, dist, mes])
+				if seq:
+					lines.append([ss, seq, dist, mes])
 				break
-			# print '\t'.join(map(str, lines[-1]))
 	
 	for line in lines:
 		o.write('\t'.join(map(str, line)) + '\n')

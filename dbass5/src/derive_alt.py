@@ -13,6 +13,7 @@ if __name__ == '__main__':
 	args = parser.parse_args()
 
 	o = open(args.output, 'w') if args.output != sys.stdout else sys.stdout
+	o.write('GeneName\tAlteration\tNucleotideSequence\n')	
 
 	header = None
 	with open(args.input, 'r') as dbass:
@@ -27,7 +28,7 @@ if __name__ == '__main__':
 			seq = re.sub('\([^>]*\)', '', seq) # remove deletions
 			
 			# transform to reflect SNPs
-			m = re.search('\(.>.\)',  seq)
+			m = re.search('\(.*>.*\)',  seq)
 			if m:
 				event = m.group(0)
 				a, b = m.start(), m.end()

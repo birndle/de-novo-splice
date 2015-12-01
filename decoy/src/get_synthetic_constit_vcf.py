@@ -1,7 +1,7 @@
-out = 'constitutive/synthetic_vcf_constitutive.vcf'
+out = 'data/decoy_vcf_pc_single_trans/synthetic_vcf_constitutive.vcf'
 o = open(out, 'w')
 o.write('#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n')
-with open('constitutive/constitutive_exons.txt', 'r') as exons:
+with open('data/exons/constitutive_exons.single_transcript.11_17.txt', 'r') as exons:
 	header = True
 	for line in exons:
 		if header:
