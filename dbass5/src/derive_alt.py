@@ -13,29 +13,34 @@ if __name__ == '__main__':
 	args = parser.parse_args()
 
 	o = open(args.output, 'w') if args.output != sys.stdout else sys.stdout
-	o.write('GeneName\tAlteration\tNucleotideSequence\n')	
 
 	header = None
 	with open(args.input, 'r') as dbass:
 		for row in dbass:
+			fields = filter(lambda c:c != '', re.split(' |\t', row.strip()))
 			if not header:
-				fields = row.strip().split('\t')
 				header = dict(zip(fields, range(len(fields))))
+				o.write('\t'.join(fields) + '\n')
 				continue
-			fields = row.strip().split('\t')
+
 			orig = fields[header['NucleotideSequence']]
-			seq = re.sub('[\[\]]', '', orig) # add insertions
-			seq = re.sub('\([^>]*\)', '', seq) # remove deletions
-			
-			# transform to reflect SNPs
-			m = re.search('\(.*>.*\)',  seq)
-			if m:
-				event = m.group(0)
-				a, b = m.start(), m.end()
-				allele = re.search('>(.*)\)', event).group(1)
-				seq = seq[:a] + allele + seq[b:]
-			line = [fields[header['GeneName']], fields[header['Alteration']], seq]
-			o.write('\t'.join(line) + '\n')
+			seq = re.sub('[\[\]]', '', orig) # include insertions
+			delta = 0
+			for event in re.finditer('\(.*?\)', seq):
+				l = len(seq)
+				event_str = event.group(0)
+				start = event.start() + delta
+				end = event.end() + delta
+				if '>' in event_str:
+					allele = re.search('>(.*)\)', event_str).group(1)
+					seq = seq[:start] + allele + seq[end:]
+				else:
+					seq = seq[:start] + seq[end:]
+				delta = len(seq) - l
+
+			newfields = fields
+			newfields[header['NucleotideSequence']] = seq
+			o.write('\t'.join(newfields) + '\n')
 	
 	o.close()
 		

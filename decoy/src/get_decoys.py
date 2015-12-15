@@ -46,24 +46,27 @@ def score3_perl(seqs, local=False):
 
 
 def scan_for_donor_decoy(seq):
-	regex = "[AGCT][agct]"
-	i = re.search(regex, seq).start()
-	intron_len = len(filter(lambda c: c.islower(), seq))
+	donor = re.search("[AGCT][agct]", seq).start()
+	acceptors = [m.start() for m in re.finditer("[acgt][ACGT]", seq)]
+	intron_len = acceptors[1] - donor
+	
 	best = float('-inf')
 	best_idx = None
 	candidates = []
-	for j in range(len(seq)):
+	for j in range(acceptors[0] - 1, len(seq)):
 		consensus = seq[j:j+9]
-		dist = j - i + 2
-		if dist == 0:
-			continue
-		if dist > 200 or intron_len - dist < 100 or len(consensus) < 9:
+		dist = j - donor + 2
+		if dist > 200 or intron_len - dist < 100:
 			break
+		if dist < -200 or dist == 0:
+			continue
 		candidates.append((consensus, j, dist))
-	# get best MES score
+	
 	seqs = map(lambda x:x[0], candidates)
 	if not seqs:
 		return False, False, False
+
+	# get best MES score
 	mes = score5_perl(seqs)
 	best_mes = max(mes)
 	# if more than one decoy are tied for best MES score, pick the closer one
@@ -79,22 +82,25 @@ def scan_for_donor_decoy(seq):
 
 
 def scan_for_acceptor_decoy(seq):
-	regex = "[acgt][ACGT]"
-	i = re.search(regex, seq).start()
-	intron_len = len(filter(lambda c: c.islower(), seq))
+	acceptor = re.search("[acgt][ACGT]", seq).start()
+	donors = [m.start() for m in re.finditer("[AGCT][agct]", seq)]
+	intron_len = acceptor - donors[0]
 	candidates = []
-	for j in range(len(seq)):
+
+	for j in range(donors[0] - 18, len(seq)):
 		consensus = seq[j:j+23]
-		dist = j - i + 19
-		if dist == 0 or dist < -200 or (intron_len + dist) < 100:
-			continue
-		if len(consensus) < 23:
+		dist = j - acceptor + 19
+		if dist > 200 or (acceptor + dist) == donors[1] - 1:
 			break
+		if dist < -200 or dist == 0 or (intron_len + dist) < 100:
+			continue
 		candidates.append((consensus, j, dist))
-	# get best MES score
+
 	seqs = map(lambda x:x[0], candidates)
 	if not seqs:
-		return False, False, False
+		return "NA", "NA", "NA"
+	
+	# get best MES score
 	mes = score3_perl(seqs)
 	best_mes = max(mes)
 	# if more than one decoy are tied for best MES score, pick the closer one
@@ -109,38 +115,46 @@ def scan_for_acceptor_decoy(seq):
 	return new_seq, best_mes, dist_from_authentic
 
 
+def main(args):
+	vcf = vcf_reader(args.vcf)
+	lines = []
+	o = open(args.output, 'w') if args.output != sys.stdout else sys.stdout
+	o.write('SS\tNucleotideSequence\tDistFromAuthentic\tMaxEntScan\tLabel\n')
+	for site in vcf.read():
+		print "%s-%s-%s-%s" % (site['CHROM'], site['POS'], site['REF'], site['ALT'])
+		shortest = float('inf')
+		for annot in site.annotations:
+			lof_info = dict(tuple(entry.split(':')) if ':' in entry else (entry, True) for entry in annot['LoF_info'].split('&'))
+			if 'CONTEXT' in lof_info:
+				context = lof_info['CONTEXT']
+				if len(context) < shortest:
+					shortest = len(context)
+					seq = context
+					donor = 'splice_donor_variant' in annot['Consequence']
+		
+		# re-format CONTEXT to look like DBASS NucleotideSeq
+		if 'N' not in seq and shortest != float('inf'):
+			juncs = [m.start() for m in re.finditer('/', seq)]
+			if donor:
+				seq = seq[:juncs[0]].lower() + seq[juncs[0]+1:juncs[1]] + seq[juncs[1]+1:juncs[2]].lower() + seq[juncs[2]+ 1:]
+				newseq, mes, dist = scan_for_donor_decoy(seq)
+				ss = 'donor'
+			else:
+				seq = seq[:juncs[0]] + seq[juncs[0]+1:juncs[1]].lower() + seq[juncs[1]+1:juncs[2]] + seq[juncs[2]+ 1:].lower()
+				newseq, mes, dist = scan_for_acceptor_decoy(seq)
+				ss = 'acceptor'
+			if seq:
+				lines.append([ss, newseq, dist, mes, 'decoy'])
+	
+	for line in lines:
+		o.write('\t'.join(map(str, line)) + '\n')
+
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--vcf', '-i', dest='vcf', required=True, help='Input VCF.')
 	parser.add_argument('-o', dest='output', default=sys.stdout)
 	args = parser.parse_args()
 
-	vcf = vcf_reader(args.vcf)
-	lines = []
-	o = open(args.output, 'w') if args.output != sys.stdout else sys.stdout
-	o.write('SS\tNucleotideSequence\tDistFromAuthentic\tMaxEntScan\n')
-	for site in vcf.read():
-		print "%s-%s-%s-%s" % (site['CHROM'], site['POS'], site['REF'], site['ALT'])
-		for annot in site.annotations:
-			lof_info = dict(tuple(entry.split(':')) if ':' in entry else (entry, True) for entry in annot['LoF_info'].split('&'))
-			donor = 'splice_donor_variant' in annot['Consequence']
-			if 'CONTEXT' in lof_info:
-				seq = lof_info['CONTEXT']
-				if 'N' in seq:
-					continue
-				junction = seq.index('/')
-				if donor:
-					seq = seq[:junction] + seq[junction+1:].lower()
-					seq, mes, dist = scan_for_donor_decoy(seq)
-					ss = 'donor'
-				else:
-					seq = seq[:junction].lower() + seq[junction+1:]
-					seq, mes, dist = scan_for_acceptor_decoy(seq)
-					ss = 'acceptor'
-				if seq:
-					lines.append([ss, seq, dist, mes])
-				break
-	
-	for line in lines:
-		o.write('\t'.join(map(str, line)) + '\n')
+	main(args)
+
 
